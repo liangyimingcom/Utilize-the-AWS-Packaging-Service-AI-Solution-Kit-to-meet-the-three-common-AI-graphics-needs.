@@ -5,20 +5,17 @@
 ## 一、需求和背景：
 
 背景：
-
 1. 客户在AWS ZHY区域部署了新的画板系统
 2. 原系统使用阿里云API，现计划/需要迁移到AWS服务
 3. 要求API必须在VPC内调用，内网访问 - 保证数据安全性！
 4. VPC目前为AWS ZHY区域
 
 具体功能需求：
-
 1. OCR文字识别
 2. 图片抠图（去背景）
 3. 图片分辨率增强（2K/4K）
 
 项目实施策略：
-
 1. 先进行POC验证，确认API功能满足度
 2. 若能够满足则试用，不满足另寻他法
 3. 关键要点（内网访问保证数据安全）：
@@ -232,79 +229,189 @@ Once the AWS CloudFormation template is opened in your AWS account, you can choo
 
    
 
-**5）AK/SK的最小权限配置，请参考 这里 https://awslabs.github.io/aws-ai-solution-kit/zh/faq/**
+## **四、给API API Gateway配置 IAM（AK/SK）的最小权限配置，以便Postman鉴权调用**
 
-<u>使用解决方案都需要哪些AWS Identity and Access Management (IAM)权限？</u>
+### AWS API Gateway IAM 最小权限配置指南
 
-您在部署解决方案之后，可以通过Amazon API Gateway调用API，需要的权限如下。其中**sagemaker:**仅限于**图像超分辨率**API。
+### 需求说明
+- 场景：通过 Postman 调用 AWS API Gateway 接口
+- 当前状态：使用管理员权限的 AK/SK
+- 目标：配置最小权限的 IAM 用户，仅允许 API 调用
 
-| Actions                               |
-| :------------------------------------ |
-| apigateway:DELETE                     |
-| apigateway:GET                        |
-| apigateway:PATCH                      |
-| apigateway:POST                       |
-| apigateway:PUT                        |
-| cloudformation:CancelUpdateStack      |
-| cloudformation:ContinueUpdateRollback |
-| cloudformation:CreateChangeSet        |
-| cloudformation:CreateStack            |
-| cloudformation:DeleteStack            |
-| cloudformation:DescribeChangeSet      |
-| cloudformation:DescribeStackEvents    |
-| cloudformation:DescribeStackResources |
-| cloudformation:DescribeStacks         |
-| cloudformation:GetStackPolicy         |
-| cloudformation:GetTemplateSummary     |
-| cloudformation:ListChangeSets         |
-| cloudformation:ListStackResources     |
-| cloudformation:ListStacks             |
-| cloudformation:RollbackStack          |
-| cloudformation:UpdateStack            |
-| cloudformation:UpdateStackSet         |
-| ecr:BatchCheckLayerAvailability       |
-| ecr:BatchDeleteImage                  |
-| ecr:BatchGetImage                     |
-| ecr:CreateRepository                  |
-| ecr:DeleteRepository                  |
-| ecr:DescribeRepositories              |
-| ecr:GetDownloadUrlForLayer            |
-| ecr:GetRepositoryPolicy               |
-| ecr:InitiateLayerUpload               |
-| ecr:PutImage                          |
-| ecr:SetRepositoryPolicy               |
-| iam:AttachRolePolicy                  |
-| iam:CreateRole                        |
-| iam:DeleteRole                        |
-| iam:DeleteRolePolicy                  |
-| iam:DetachRolePolicy                  |
-| iam:GetRole                           |
-| iam:ListRoles                         |
-| iam:PassRole                          |
-| iam:PutRolePolicy                     |
-| lambda:AddPermission                  |
-| lambda:CreateFunction                 |
-| lambda:DeleteFunction                 |
-| lambda:GetFunction                    |
-| lambda:InvokeFunction                 |
-| lambda:RemovePermission               |
-| lambda:UpdateFunctionConfiguration    |
-| s3:GetObject                          |
-| sagemaker:CreateEndpoint              |
-| sagemaker:CreateEndpointConfig        |
-| sagemaker:CreateModel                 |
-| sagemaker:DeleteEndpoint              |
-| sagemaker:DeleteEndpointConfig        |
-| sagemaker:DeleteModel                 |
-| sagemaker:DescribeEndpoint            |
-| sagemaker:DescribeEndpointConfig      |
-| sagemaker:DescribeModel               |
-| sagemaker:InvokeEndpoint              |
-| sns:ListTopics                        |
+### 解决方案
+
+#### 1. 创建 IAM 用户
+1. 登录 AWS 控制台
+2. 进入 IAM 服务
+3. 创建新的 IAM 用户
+```bash
+用户名建议: api-gateway-postman-user
+访问类型: 编程访问（生成 AK/SK）
+```
+
+#### 2. 创建自定义 IAM 策略
+1. 在 IAM 控制台中选择"策略"
+2. 创建新策略
+3. 使用 JSON 编辑器，输入以下策略内容：
+```json
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "APIGatewayInvoke",
+            "Effect": "Allow",
+            "Action": [
+                "execute-api:Invoke"
+            ],
+            "Resource": [
+                "arn:aws-cn:execute-api:cn-northwest-1:YOUR-ACCOUNT-ID:YOUR-API-ID/*/POST/*"
+            ]
+        }
+    ]
+}
+```
+注意：
+- 替换 `YOUR-ACCOUNT-ID` 为您的 AWS 账号 ID
+- 替换 `YOUR-API-ID` 为您的 API Gateway ID
+- `*/POST/*` 表示允许所有阶段的 POST 方法，可以根据需要限制具体阶段和路径
+
+![image-20250427101356567](./assets/image-20250427101356567.png)
+
+#### 3. 附加策略到用户
+
+1. 返回到 IAM 用户列表
+2. 选择刚创建的用户
+3. 点击"添加权限"
+4. 附加刚才创建的自定义策略
+
+#### 4. 更新 Postman 配置
+1. 在 Postman 中更新认证信息
+```yaml
+Type: AWS Signature
+AccessKey: 新创建用户的 AccessKey
+SecretKey: 新创建用户的 SecretKey
+AWS Region: cn-northwest-1
+Service Name: execute-api
+```
+
+### 安全建议
+1. 定期轮换 AK/SK
+2. 监控 CloudTrail 日志，检查 API 调用情况
+3. 使用资源标签管理权限
+4. 考虑使用 API Gateway 的 API Key 作为额外的安全层
+
+### 故障排查
+如果遇到访问被拒绝：
+1. 检查 IAM 策略中的 Resource ARN 是否正确
+2. 确认 API Gateway 的配置是否启用了 IAM 授权
+3. 验证 Postman 中的认证信息是否正确配置
+
+### 参考文档
+- [AWS API Gateway 授权](https://docs.aws.amazon.com/apigateway/latest/developerguide/permissions.html)
+- [IAM 最佳实践](https://docs.aws.amazon.com/IAM/latest/UserGuide/best-practices.html)
+- [API Gateway 资源策略](https://docs.aws.amazon.com/apigateway/latest/developerguide/apigateway-resource-policies.html)
 
 
 
-## 四、结束
+关于整个解决方案都需要哪些AWS Identity and Access Management (IAM)权限？ 请参考 这里 https://awslabs.github.io/aws-ai-solution-kit/zh/faq/
+
+
+
+
+
+## 五、测试账号下的AI Solution Kit API 调用指南
+
+### 基本信息
+
+- API 网关: `https://ccn579zbz7.execute-api.cn-northwest-1.amazonaws.com.cn/prod`
+- 区域: `cn-northwest-1`
+- 认证方式: AWS SigV4
+
+### Postman 配置步骤
+
+#### 1. 创建新的 Collection
+
+1. 打开 Postman
+2. 点击 "New" -> "Collection"
+3. 为 Collection 命名（例如：`AI Solution Kit API`）
+
+#### 2. 配置认证信息
+
+在 Collection 级别设置认证信息，这样所有请求都会继承这些设置：
+
+1. 点击 Collection 的设置图标（⚙️）
+
+2. 选择 "Authorization" 标签
+
+3. Type 选择 "AWS Signature"
+
+4. 填写以下信息：
+   - AccessKey: `单独发出`
+   - SecretKey: `单独发出`
+   - AWS Region: `cn-northwest-1`
+   - ~~Service Name: `execute-api`~~
+
+![image-20250427100412018](./assets/image-20250427100412018.png)
+
+#### 3. 创建 API 请求
+
+#### 轻量级文字识别 (Lite OCR)
+
+```
+POST /lite-ocr
+Host: ccn579zbz7.execute-api.cn-northwest-1.amazonaws.com.cn/prod
+Content-Type: application/json
+
+{
+  "url": "https://r.fabrie.cn/files/6593ee5ff7bc732703968a4b/65c0dec94358d24d4f755aa7/cnheader-1025.png"
+}
+
+```
+
+![image-20250427100043522](./assets/image-20250427100043522.png)
+
+
+
+#### 人像分割 (Human Segmentation)
+
+```
+POST /human-segmentation
+Host: ccn579zbz7.execute-api.cn-northwest-1.amazonaws.com.cn/prod
+Content-Type: application/json
+
+{
+  "url": "https://r.fabrie.cn/files/6593ee5ff7bc732703968a4b/65c0dec94358d24d4f755aa7/cnheader-1025.png",
+  "type": "foreground"
+}
+
+```
+
+![image-20250427100327393](./assets/image-20250427100327393.png)
+
+#### 图像超分辨率增强 (Super Resolution)
+
+```
+POST /super-resolution-ml
+Host: ccn579zbz7.execute-api.cn-northwest-1.amazonaws.com.cn/prod
+Content-Type: application/json
+
+{
+  "url": "https://r.fabrie.cn/files/6593ee5ff7bc732703968a4b/65c0dec94358d24d4f755aa7/cnheader-1025.png",
+    "scale" : 2
+}
+```
+
+![image-20250427100453624](./assets/image-20250427100453624.png)
+
+![image-20250427100628082](./assets/image-20250427100628082.png)
+
+#### 
+
+
+
+
+
+## 最后、结束
 
 ## 
 
